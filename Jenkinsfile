@@ -2,12 +2,13 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'DOCKER_USER', defaultValue: 'nguyenvanhai', description: 'Docker Hub Username (Bước 3 & 4)')
-        string(name: 'DOCKER_REGISTRY', defaultValue: '', description: 'Custom registry host:port (ví dụ localhost:5000). Để trống để dùng Docker Hub.')
+        string(name: 'DOCKER_REGISTRY', defaultValue: 'localhost:8082', description: 'Private Nexus Docker Registry (localhost:8082) hoặc để trống để dùng Docker Hub')
+        string(name: 'DOCKER_USER', defaultValue: 'nguyenvanhai', description: 'Docker Hub Username (chỉ dùng khi DOCKER_REGISTRY để trống)')
+        string(name: 'CREDENTIALS_ID', defaultValue: 'nexus-docker-credentials', description: 'Jenkins Credentials ID (nexus-docker-credentials hoặc docker-hub-credentials_1)')
     }
 
     environment {
-        DOCKER_IMAGE   = "${params.DOCKER_REGISTRY ? "${params.DOCKER_REGISTRY}/devops-lab8-app" : "${params.DOCKER_USER}/devops-lab8-app"}"
+        DOCKER_IMAGE   = "${params.DOCKER_REGISTRY?.trim() ? "${params.DOCKER_REGISTRY}/devops-lab8-app" : "${params.DOCKER_USER}/devops-lab8-app"}"
         DOCKER_TAG     = "${env.BUILD_NUMBER}"
         CONTAINER_NAME = 'lab8-cd-production'
         APP_PORT       = '3002'
@@ -46,19 +47,14 @@ pipeline {
             steps {
                 echo '📤 CD STEP 4/6: PUSH TO REGISTRY'
                 script {
-                    if (params.DOCKER_REGISTRY?.trim()) {
-                        sh '''
+                    def regHost = params.DOCKER_REGISTRY?.trim() ?: ''
+                    def credId = params.CREDENTIALS_ID?.trim() ?: (regHost ? 'nexus-docker-credentials' : 'docker-hub-credentials_1')
+                    withCredentials([usernamePassword(credentialsId: credId, usernameVariable: 'REG_USER', passwordVariable: 'REG_PASS')]) {
+                        sh """
+                            echo "\$REG_PASS" | docker login ${regHost} -u "\$REG_USER" --password-stdin
                             docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
                             docker push ${DOCKER_IMAGE}:latest
-                        '''
-                    } else {
-                        withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials_1', usernameVariable: 'HUB_USER', passwordVariable: 'HUB_PASS')]) {
-                            sh '''
-                                echo "$HUB_PASS" | docker login -u "$HUB_USER" --password-stdin
-                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
-                                docker push ${DOCKER_IMAGE}:latest
-                            '''
-                        }
+                        """
                     }
                 }
             }
