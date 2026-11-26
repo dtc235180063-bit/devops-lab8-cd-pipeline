@@ -17,7 +17,7 @@ HỌC PHẦN: VẬN HÀNH VÀ BẢO TRÌ PHẦN MỀM (DEVOPS - 2026)
 - Git Repository      : https://github.com/dtc235180063-bit/devops-lab8-cd-pipeline
 - Công cụ sử dụng     : Docker Desktop 29.8.2, Docker Compose v5.8.0, Node.js 18-alpine,
                         Express ^4.21.0, Redis 7-alpine, Nginx alpine, Jenkins LTS (JDK17),
-                        Local OCI Registry (registry:2), Git 2.x
+                        Sonatype Nexus Docker Registry (cổng 8082), Git 2.x
 - Ngày thực hiện      : 26/11/2026
 
 3. KẾT QUẢ THỰC HIỆN TỪNG BƯỚC
@@ -41,24 +41,26 @@ HỌC PHẦN: VẬN HÀNH VÀ BẢO TRÌ PHẦN MỀM (DEVOPS - 2026)
 - Kiểm tra `docker compose ps` cả 3 containers chạy ổn định; `curl http://localhost/` và
   `curl http://localhost/health` qua Nginx reverse proxy hoạt động thành công.
 
-[BƯỚC 3: PUSH & VERIFY IMAGE TRÊN REGISTRY]
-- Chạy OCI Registry cục bộ `lab8-registry` (`registry:2`, port `5000`) để kiểm thử push/pull:
-  + `docker push localhost:5000/devops-lab8-app:1.0` & `:latest` thành công
-  + Kiểm tra API `http://localhost:5000/v2/_catalog` -> `{"repositories":["devops-lab8-app"]}`
-  + Kiểm tra `http://localhost:5000/v2/devops-lab8-app/tags/list` -> tags `["2","3","1.0","latest"]`
-  + Pull & chạy container kiểm thử `lab8-test-pull` trên cổng `3001`, `curl http://localhost:3001/` OK.
-- Ghi chú Docker Hub: `Jenkinsfile` đã cấu hình sẵn nhánh `withCredentials(credentialsId: 'docker-hub-credentials_1')`
-  để push lên Docker Hub (`hub.docker.com`) ngay khi đăng nhập `docker login` và thêm token trên Jenkins.
+[BƯỚC 3: PUSH & VERIFY IMAGE TRÊN SONATYPE NEXUS DOCKER REGISTRY (MỞ RỘNG #4)]
+- Thay thế Docker Hub bằng **Sonatype Nexus Docker Hosted Registry** (`lab7-nexus`, cổng `8082`,
+  repo `docker-hosted`, bật realm `DockerToken`):
+  + `docker login localhost:8082` thành công
+  + `docker push localhost:8082/devops-lab8-app:1.0` & `:latest` thành công
+  + Kiểm tra Nexus REST API `/service/rest/v1/components?repository=docker-hosted` xác nhận lưu trữ
+    đầy đủ các tags (`1.0`, `4`, `latest`) trên Nexus
+  + Xóa ảnh local và `docker pull localhost:8082/devops-lab8-app:1.0`, chạy container `lab8-test-pull`
+    trên cổng `3001` kiểm tra `curl http://localhost:3001/` thành công.
 
 [BƯỚC 4: JENKINS CD PIPELINE — TỰ ĐỘNG DEPLOY]
 - Dùng lại container `lab7-jenkins` (`http://localhost:8080`), cài đặt `docker-ce-cli` trong container
   và phân quyền `/var/run/docker.sock` (`chmod 666`), xác nhận `docker exec lab7-jenkins docker ps` OK.
-- Tạo pipeline job `DevOps-Lab8-CD-Pipeline` sử dụng `Pipeline script from SCM` đọc `Jenkinsfile`.
-- Thực thi Build #3 thành công (`SUCCESS`, tổng thời gian 14.5 giây) qua đủ 6 stages:
-  1. `Checkout`         : Clone source từ Git SCM (commit `367d385`)
-  2. `Docker Build`     : Build `localhost:5000/devops-lab8-app:3` và `:latest`
+- Thêm credential `nexus-docker-credentials` trong Jenkins và tạo job `DevOps-Lab8-CD-Pipeline`
+  sử dụng `Pipeline script from SCM` đọc `Jenkinsfile`.
+- Thực thi Build #4 thành công (`SUCCESS`, tổng thời gian 15,524 ms) qua đủ 6 stages:
+  1. `Checkout`         : Clone source từ Git SCM (commit `9d08c20`)
+  2. `Docker Build`     : Build `localhost:8082/devops-lab8-app:4` và `:latest`
   3. `Docker Scan`      : Chạy `docker scout quickview` (skip an toàn nếu không có Scout plugin)
-  4. `Push to Registry` : Push tag `:3` và `:latest` lên registry
+  4. `Push to Registry` : `docker login localhost:8082` + push tag `:4` và `:latest` lên Nexus
   5. `Deploy Container` : Dừng container cũ và chạy `lab8-cd-production` trên cổng `3002:3000`
   6. `Verify Deploy`    : Kiểm tra `http://host.docker.internal:3002/health` và `/` -> 200 OK.
 
@@ -73,8 +75,8 @@ HỌC PHẦN: VẬN HÀNH VÀ BẢO TRÌ PHẦN MỀM (DEVOPS - 2026)
 - 01-docker-build.png       : Output thực tế lệnh `docker build -t devops-lab8-app:1.0 .`
 - 02-docker-images-size.png : So sánh dung lượng `devops-lab8-app:1.0` (186MB) vs `:fat` (196MB)
 - 03-compose-ps.png         : Kết quả `docker compose ps`, logs và `curl http://localhost/` qua Nginx
-- 04-registry-push.png      : Push & kiểm tra tags trên Registry cục bộ `localhost:5000` (chờ thay bằng ảnh Docker Hub sau khi `docker login`)
-- 05-jenkins-cd-pipeline.png: Ảnh chụp trình duyệt Jenkins Stage View (`DevOps-Lab8-CD-Pipeline` #3 xanh 6 stages)
-- 06-verify-deploy.png      : Kiểm chứng `docker ps` + `curl http://localhost:3002/` + Jenkins `wfapi` breakdown
+- 04-registry-push.png      : Push, kiểm tra Nexus REST API & pull test qua Nexus Docker Registry (`localhost:8082`)
+- 05-jenkins-cd-pipeline.png: Ảnh chụp trình duyệt Jenkins Stage View (`DevOps-Lab8-CD-Pipeline` #4 xanh 6 stages)
+- 06-verify-deploy.png      : Kiểm chứng `docker ps` + `curl http://localhost:3002/` + Jenkins Build #4 breakdown
 - 07-ci-vs-cd-table.png     : Bảng so sánh CI (Bài 7) vs CD (Bài 8) và luồng CI/CD hoàn chỉnh
 ================================================================================
