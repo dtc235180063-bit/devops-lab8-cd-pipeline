@@ -103,7 +103,7 @@ pipeline {
             echo "💥 CD PIPELINE FAILED — Check logs!"
         }
         always {
-            cleanWs()
+            deleteDir()
         }
     }
 }
