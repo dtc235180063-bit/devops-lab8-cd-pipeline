@@ -1,0 +1,80 @@
+================================================================================
+BÁO CÁO NỘP BÀI THỰC HÀNH LAB 8
+HỌC PHẦN: VẬN HÀNH VÀ BẢO TRÌ PHẦN MỀM (DEVOPS - 2026)
+================================================================================
+
+1. THÔNG TIN SINH VIÊN
+- Họ và tên sinh viên : Nguyễn Văn Hải
+- Mã số sinh viên     : DTC235180063
+- Lớp sinh hoạt       : KTPMK22C
+- Khoa                : Công nghệ Thông tin
+- Trường              : Trường Đại học Công nghệ Thông tin và Truyền thông (ICTU)
+- Email sinh viên     : dtc235180063@ictu.edu.vn
+
+2. THÔNG TIN BÀI THỰC HÀNH
+- Tên bài thực hành   : Lab 8 — Phát hành Liên tục (CD): Docker & Jenkins CD Pipeline
+- Chuẩn đầu ra (CDR)  : CDR 8.2 (Đóng gói Docker image) + CDR 8.3 (Triển khai CD với Jenkins)
+- Git Repository      : https://github.com/dtc235180063-bit/devops-lab8-cd-pipeline
+- Công cụ sử dụng     : Docker Desktop 29.8.2, Docker Compose v5.8.0, Node.js 18-alpine,
+                        Express ^4.21.0, Redis 7-alpine, Nginx alpine, Jenkins LTS (JDK17),
+                        Local OCI Registry (registry:2), Git 2.x
+- Ngày thực hiện      : 26/11/2026
+
+3. KẾT QUẢ THỰC HIỆN TỪNG BƯỚC
+
+[BƯỚC 1: DOCKER IMAGE — BUILD & TỐI ƯU MULTI-STAGE]
+- Tạo ứng dụng Node.js Express (`app/package.json`, `app/server.js`) chạy trên cổng 3000
+  với 2 endpoints: `GET /` và `GET /health`.
+- Viết `Dockerfile` multi-stage build (Stage 1: `node:18-alpine` cài `npm install --production`,
+  Stage 2: `node:18-alpine` copy `node_modules` + source, chạy dưới non-root user `appuser` UID 1001,
+  tích hợp `HEALTHCHECK`).
+- So sánh kích thước thực tế qua `docker images devops-lab8-app`:
+  + `devops-lab8-app:1.0` (multi-stage):     186MB (content size 45.6MB)
+  + `devops-lab8-app:fat` (non-multi-stage): 196MB (content size 47.4MB)
+- Chạy container `lab8-app` và kiểm tra `curl http://localhost:3000/` & `/health` trả về JSON 200 OK.
+
+[BƯỚC 2: DOCKER COMPOSE — MULTI-CONTAINER APP]
+- Cấu hình `docker-compose.yml` + `nginx.conf` gồm 3 services trong bridge network `app-network`:
+  + `app` (`lab8-app`, port `3000:3000`, trạng thái `healthy`)
+  + `redis` (`lab8-redis`, `redis:7-alpine`, port `6379:6379`, volume `redis-data`)
+  + `nginx` (`lab8-nginx`, `nginx:alpine`, port `80:80`, `depends_on` app `service_healthy`)
+- Kiểm tra `docker compose ps` cả 3 containers chạy ổn định; `curl http://localhost/` và
+  `curl http://localhost/health` qua Nginx reverse proxy hoạt động thành công.
+
+[BƯỚC 3: PUSH & VERIFY IMAGE TRÊN REGISTRY]
+- Chạy OCI Registry cục bộ `lab8-registry` (`registry:2`, port `5000`) để kiểm thử push/pull:
+  + `docker push localhost:5000/devops-lab8-app:1.0` & `:latest` thành công
+  + Kiểm tra API `http://localhost:5000/v2/_catalog` -> `{"repositories":["devops-lab8-app"]}`
+  + Kiểm tra `http://localhost:5000/v2/devops-lab8-app/tags/list` -> tags `["2","3","1.0","latest"]`
+  + Pull & chạy container kiểm thử `lab8-test-pull` trên cổng `3001`, `curl http://localhost:3001/` OK.
+- Ghi chú Docker Hub: `Jenkinsfile` đã cấu hình sẵn nhánh `withCredentials(credentialsId: 'docker-hub-credentials_1')`
+  để push lên Docker Hub (`hub.docker.com`) ngay khi đăng nhập `docker login` và thêm token trên Jenkins.
+
+[BƯỚC 4: JENKINS CD PIPELINE — TỰ ĐỘNG DEPLOY]
+- Dùng lại container `lab7-jenkins` (`http://localhost:8080`), cài đặt `docker-ce-cli` trong container
+  và phân quyền `/var/run/docker.sock` (`chmod 666`), xác nhận `docker exec lab7-jenkins docker ps` OK.
+- Tạo pipeline job `DevOps-Lab8-CD-Pipeline` sử dụng `Pipeline script from SCM` đọc `Jenkinsfile`.
+- Thực thi Build #3 thành công (`SUCCESS`, tổng thời gian 14.5 giây) qua đủ 6 stages:
+  1. `Checkout`         : Clone source từ Git SCM (commit `367d385`)
+  2. `Docker Build`     : Build `localhost:5000/devops-lab8-app:3` và `:latest`
+  3. `Docker Scan`      : Chạy `docker scout quickview` (skip an toàn nếu không có Scout plugin)
+  4. `Push to Registry` : Push tag `:3` và `:latest` lên registry
+  5. `Deploy Container` : Dừng container cũ và chạy `lab8-cd-production` trên cổng `3002:3000`
+  6. `Verify Deploy`    : Kiểm tra `http://host.docker.internal:3002/health` và `/` -> 200 OK.
+
+[BƯỚC 5: CI (BÀI 7) + CD (BÀI 8) — PIPELINE HOÀN CHỈNH]
+- Tổng hợp bảng so sánh CI vs CD (trong `README.md` và `screenshots/07-ci-vs-cd-table.png`).
+- Cung cấp mẫu `Jenkinsfile.cicd` kết hợp Maven CI (`compile`, `test`, `package`) + Docker CD (`build`, `push`, `deploy`).
+
+[BƯỚC 6: DỌN DẸP]
+- Thực hiện `scripts/cleanup.ps1` dừng và xóa toàn bộ containers `lab8-*`, kiểm tra `docker ps` sạch sẽ.
+
+4. DANH MỤC MINH CHỨNG (screenshots/)
+- 01-docker-build.png       : Output thực tế lệnh `docker build -t devops-lab8-app:1.0 .`
+- 02-docker-images-size.png : So sánh dung lượng `devops-lab8-app:1.0` (186MB) vs `:fat` (196MB)
+- 03-compose-ps.png         : Kết quả `docker compose ps`, logs và `curl http://localhost/` qua Nginx
+- 04-registry-push.png      : Push & kiểm tra tags trên Registry cục bộ `localhost:5000` (chờ thay bằng ảnh Docker Hub sau khi `docker login`)
+- 05-jenkins-cd-pipeline.png: Ảnh chụp trình duyệt Jenkins Stage View (`DevOps-Lab8-CD-Pipeline` #3 xanh 6 stages)
+- 06-verify-deploy.png      : Kiểm chứng `docker ps` + `curl http://localhost:3002/` + Jenkins `wfapi` breakdown
+- 07-ci-vs-cd-table.png     : Bảng so sánh CI (Bài 7) vs CD (Bài 8) và luồng CI/CD hoàn chỉnh
+================================================================================

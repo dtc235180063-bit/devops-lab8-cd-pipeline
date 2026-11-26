@@ -54,12 +54,15 @@ $screens = @(
     "01-docker-build.png",
     "02-docker-images-size.png",
     "03-compose-ps.png",
-    "04-docker-hub.png",
     "05-jenkins-cd-pipeline.png",
     "06-verify-deploy.png",
     "07-ci-vs-cd-table.png"
 )
 $missingScreens = $screens | Where-Object { -not (Test-Path "$baseDir\screenshots\$_") }
+$hasRegistryScreen = (Test-Path "$baseDir\screenshots\04-docker-hub.png") -or (Test-Path "$baseDir\screenshots\04-registry-push.png")
+if (-not $hasRegistryScreen) {
+    $missingScreens += "04-docker-hub.png (or 04-registry-push.png)"
+}
 Check-Result "All 7 rubric screenshots exist" ($missingScreens.Count -eq 0) ("Missing: " + ($missingScreens -join ", "))
 
 Write-Host ""

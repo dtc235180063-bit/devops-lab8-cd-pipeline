@@ -17,7 +17,7 @@ if (-not (Test-Path "$baseDir\docker-compose.yml")) {
 Write-Host "Stopping Docker Compose stack..." -ForegroundColor Yellow
 docker compose -f "$baseDir\docker-compose.yml" down 2>$null
 
-$containers = @("lab8-app", "lab8-cd-production", "lab8-nginx", "lab8-redis", "lab8-test-pull")
+$containers = @("lab8-app", "lab8-cd-production", "lab8-nginx", "lab8-redis", "lab8-test-pull", "lab8-registry")
 foreach ($c in $containers) {
     docker stop $c 2>$null | Out-Null
     docker rm $c 2>$null | Out-Null

@@ -11,7 +11,7 @@ BASE_DIR="$(dirname "$SCRIPT_DIR")"
 docker compose -f "$BASE_DIR/docker-compose.yml" down 2>/dev/null || true
 
 # Stop individual containers
-for c in lab8-app lab8-cd-production lab8-nginx lab8-redis lab8-test-pull; do
+for c in lab8-app lab8-cd-production lab8-nginx lab8-redis lab8-test-pull lab8-registry; do
     docker stop "$c" 2>/dev/null && docker rm "$c" 2>/dev/null || true
 done
 
