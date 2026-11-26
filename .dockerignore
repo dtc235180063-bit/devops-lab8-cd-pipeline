@@ -1,0 +1,13 @@
+node_modules
+.git
+.gitignore
+screenshots
+*.zip
+*.log
+Dockerfile*
+docker-compose.yml
+Jenkinsfile*
+README.md
+ho_ten_mssv.txt
+scripts
+configs

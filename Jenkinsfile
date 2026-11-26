@@ -1,0 +1,109 @@
+pipeline {
+    agent any
+
+    parameters {
+        string(name: 'DOCKER_USER', defaultValue: 'nguyenvanhai', description: 'Docker Hub Username (Bước 3 & 4)')
+        string(name: 'DOCKER_REGISTRY', defaultValue: '', description: 'Custom registry host:port (ví dụ localhost:5000). Để trống để dùng Docker Hub.')
+    }
+
+    environment {
+        DOCKER_IMAGE   = "${params.DOCKER_REGISTRY ? "${params.DOCKER_REGISTRY}/devops-lab8-app" : "${params.DOCKER_USER}/devops-lab8-app"}"
+        DOCKER_TAG     = "${env.BUILD_NUMBER}"
+        CONTAINER_NAME = 'lab8-cd-production'
+        APP_PORT       = '3002'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                echo '📦 CD STEP 1/6: CHECKOUT'
+                checkout scm
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                echo '🐳 CD STEP 2/6: BUILD IMAGE'
+                sh '''
+                    docker build \
+                        -t ${DOCKER_IMAGE}:${DOCKER_TAG} \
+                        -t ${DOCKER_IMAGE}:latest \
+                        .
+                '''
+            }
+        }
+
+        stage('Docker Scan') {
+            steps {
+                echo '🔍 CD STEP 3/6: SCAN IMAGE'
+                sh '''
+                    docker scout quickview ${DOCKER_IMAGE}:${DOCKER_TAG} || echo "⚠️ Scout not available — skip"
+                '''
+            }
+        }
+
+        stage('Push to Registry') {
+            steps {
+                echo '📤 CD STEP 4/6: PUSH TO REGISTRY'
+                script {
+                    if (params.DOCKER_REGISTRY?.trim()) {
+                        sh '''
+                            docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                            docker push ${DOCKER_IMAGE}:latest
+                        '''
+                    } else {
+                        withCredentials([usernamePassword(credentialsId: 'docker-hub-credentials_1', usernameVariable: 'HUB_USER', passwordVariable: 'HUB_PASS')]) {
+                            sh '''
+                                echo "$HUB_PASS" | docker login -u "$HUB_USER" --password-stdin
+                                docker push ${DOCKER_IMAGE}:${DOCKER_TAG}
+                                docker push ${DOCKER_IMAGE}:latest
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Container') {
+            steps {
+                echo '🚀 CD STEP 5/6: DEPLOY CONTAINER'
+                sh '''
+                    # Stop & remove container cũ nếu có
+                    docker stop ${CONTAINER_NAME} 2>/dev/null || true
+                    docker rm ${CONTAINER_NAME} 2>/dev/null || true
+
+                    # Deploy container mới
+                    docker run -d \
+                        --name ${CONTAINER_NAME} \
+                        -p ${APP_PORT}:3000 \
+                        --restart unless-stopped \
+                        ${DOCKER_IMAGE}:${DOCKER_TAG}
+                '''
+            }
+        }
+
+        stage('Verify Deploy') {
+            steps {
+                echo '✅ CD STEP 6/6: VERIFY'
+                sh '''
+                    sleep 3
+                    curl -f http://host.docker.internal:${APP_PORT}/health || exit 1
+                    echo ""
+                    curl -f http://host.docker.internal:${APP_PORT}/
+                '''
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "🎉 CD PIPELINE SUCCESS — Deployed ${DOCKER_IMAGE}:${DOCKER_TAG}"
+        }
+        failure {
+            echo "💥 CD PIPELINE FAILED — Check logs!"
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
